@@ -28,6 +28,7 @@ class _NotionEditorState extends State<NotionEditor> {
 
   final GlobalKey _textFieldKey = GlobalKey();
 
+  OverlayEntry? _plusButtonOverlay;
   // 텍스트 스타일 상태
   bool _isBold = false;
   bool _isItalic = false;
@@ -66,172 +67,90 @@ class _NotionEditorState extends State<NotionEditor> {
     _contentController.dispose();
     _contentFocusNode.dispose();
     _scrollController.dispose();
+    _plusButtonOverlay?.remove();
     super.dispose();
   }
 
   // 텍스트 변경 감지
-  void _handleTextChange() {
-    final selection = _contentController.selection;
+  void _handleTextChange() async {
+    _updateCursorPosition(); // 커서 위치 먼저 업데이트
 
-    // 현재 라인 위치 계산 및 적용
-    final text = _contentController.text;
-    final lines = text.split('\n');
-    final currentPosition = selection.extentOffset;
+    if (_scrollController.hasClients) {
+      final viewHeight = MediaQuery.of(context).size.height;
+      final expectedY = _hoverLineY;
 
-    int offset = 0;
-    int lineIndex = 0;
-
-    for (var i = 0; i < lines.length; i++) {
-      final lineLength = lines[i].length + 1; // \n 문자 포함
-      if (offset + lineLength > currentPosition) {
-        lineIndex = i;
-        break;
+      if (_scrollController.offset + viewHeight - 100 < expectedY) {
+        _scrollController.animateTo(
+          expectedY,
+          duration: Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
       }
-      offset += lineLength;
     }
 
-    // 타이핑할 때마다 현재 라인의 + 버튼 위치 즉시 업데이트
-    setState(() {
-      // 현재 라인 텍스트의 길이에 따른 자동 줄바꿈 고려
-
-      // 커서 위치 이전의 텍스트 분량에 따라 현재 줄에서 몇 번째 자동 줄바꿈 위치인지 계산
-      final int currPosition = currentPosition - offset;
-      final int lineBreakAtCursor = (currPosition / 50).floor();
-
-      // 라인 인덱스와 자동 줄바꿈 위치를 고려한 Y 위치 계산
-      double lineHeight = 24.0; // 기본 라인 높이
-      _cursorPositionY = (lineIndex + lineBreakAtCursor) * lineHeight;
-      _hoverLineY = _cursorPositionY;
-
-      // 줄바꿈(엔터키) 감지
-      if (text.isNotEmpty &&
-          currentPosition > 0 &&
-          text[currentPosition - 1] == '\n') {
-        // 현재 라인이 화면 아래쪽에 있으면 자동 스크롤
-      }
-    });
-
-    // 슬래시 명령 감지
     _checkForSlashCommand();
   }
 
-  // 커서 위치 업데이트
-  void _updateCursorPosition() {
+  // 커서 위치 업데이
+  void _updateCursorPosition() async {
     final selection = _contentController.selection;
     if (!selection.isValid) return;
 
-    // 실제 텍스트 필드의 커서 위치 계산
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        // 텍스트 필드의 RenderBox 가져오기
-        final RenderObject? renderObject =
-            _textFieldKey.currentContext?.findRenderObject();
-        if (renderObject is RenderBox) {
-          final RenderBox box = renderObject;
+    await Future.delayed(Duration.zero);
 
-          // 텍스트 위치를 계산할 EditableText 찾기
-          EditableText? editableText;
-          void visitor(Element element) {
-            if (element.widget is EditableText) {
-              editableText = element.widget as EditableText;
-            } else {
-              element.visitChildren(visitor);
-            }
-          }
+    final context = _textFieldKey.currentContext;
+    if (context == null) return;
 
-          // 텍스트 필드 내의 EditableText 요소 찾기
-          _textFieldKey.currentContext?.visitChildElements(visitor);
+    RenderObject? renderObject = context.findRenderObject();
+    RenderEditable? renderEditable;
 
-          if (editableText != null) {
-            // 텍스트 에디터 컨테이너 안에서의 위치
-            final containerOffset = box.localToGlobal(Offset.zero);
-
-            // 현재 라인 위치 계산
-            final text = _contentController.text;
-            final lines = text.split('\n');
-            final currentPosition = selection.extentOffset;
-
-            int offset = 0;
-            int lineIndex = 0;
-
-            for (var i = 0; i < lines.length; i++) {
-              final lineLength = lines[i].length + 1; // \n 문자 포함
-              if (offset + lineLength > currentPosition) {
-                lineIndex = i;
-                break;
-              }
-              offset += lineLength;
-            }
-
-            // 현재 텍스트와 커서 위치
-            final currentText = lines[lineIndex];
-            final positionInLine = currentPosition - offset;
-
-            // 라인 높이 계산
-            final TextStyle style = editableText!.style;
-            final double fontSize = style.fontSize ?? 16.0;
-            final double lineHeight =
-                fontSize * 1.5; // 일반적인 라인 높이 (line-height 1.5)
-
-            // 기본 Y 위치 계산 (라인 기준)
-            double offsetY = lineIndex * lineHeight;
-
-            // 텍스트 너비와 자동 줄바꿈 계산
-            if (currentText.isNotEmpty) {
-              // 폰트 크기에 비례하는 텍스트 너비 계산
-              final double availableWidth = box.size.width - 32; // 좌우 패딩 고려
-              final double avgCharWidth =
-                  fontSize * 0.6; // 평균 문자 너비 (폰트 크기의 약 60%)
-              final double charsPerLine = availableWidth / avgCharWidth;
-
-              // 자동 줄바꿈 계산
-              final int lineBreakAtCursor =
-                  (positionInLine / charsPerLine).floor();
-
-              // 현재 줄바꿈 위치만큼 Y 오프셋 추가
-              offsetY += lineBreakAtCursor * lineHeight;
-            }
-
-            // 최종 위치 계산 (컨테이너 기준)
-            setState(() {
-              _hoverLineY = offsetY;
-            });
-            return;
-          }
+    void findEditable(RenderObject child) {
+      child.visitChildren((subChild) {
+        if (subChild is RenderEditable) {
+          renderEditable = subChild;
+        } else {
+          findEditable(subChild);
         }
-
-        // 위 방법이 실패할 경우 기본 방식으로 계산
-        _calculateDefaultCursorPosition(selection);
-      } catch (e) {
-        print('커서 위치 계산 오류: $e');
-        // 오류 발생 시 기본 계산 방식 사용
-        _calculateDefaultCursorPosition(selection);
-      }
-    });
-  }
-
-  // 기본 커서 위치 계산 방식
-  void _calculateDefaultCursorPosition(TextSelection selection) {
-    final text = _contentController.text;
-    final lines = text.split('\n');
-    final currentPosition = selection.extentOffset;
-
-    int offset = 0;
-    int lineIndex = 0;
-
-    for (var i = 0; i < lines.length; i++) {
-      final lineLength = lines[i].length + 1; // \n 문자 포함
-      if (offset + lineLength > currentPosition) {
-        lineIndex = i;
-        break;
-      }
-      offset += lineLength;
+      });
     }
 
-    final lineHeight = 24.0; // 기본 라인 높이
-    setState(() {
-      _hoverLineY = lineIndex * lineHeight;
-    });
+    if (renderObject != null) findEditable(renderObject);
+    if (renderEditable == null) return;
+
+    final caretRect = renderEditable!.getLocalRectForCaret(selection.extent);
+    final caretOffset = renderEditable!.localToGlobal(caretRect.topLeft);
+
+    _plusButtonOverlay?.remove();
+
+    // 텍스트 필드 위치와 크기 정보 가져오기
+    RenderBox? textFieldBox =
+        _textFieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (textFieldBox == null) return;
+
+    // 텍스트 필드의 글로벌 위치와 크기
+    final textFieldOffset = textFieldBox.localToGlobal(Offset.zero);
+    final textFieldWidth = textFieldBox.size.width;
+
+    // 텍스트 정렬에 따라 + 버튼 위치 결정
+    double leftPosition;
+    if (_textAlign == TextAlign.right) {
+      // 오른쪽 정렬일 경우 텍스트 필드의 오른쪽 끝에 배치
+      leftPosition = textFieldOffset.dx + textFieldWidth + 10;
+    } else {
+      // 왼쪽 정렬이나 가운데 정렬일 경우 왼쪽에 배치
+      leftPosition = textFieldOffset.dx - 40; // 여백 고려해서 약간 왼쪽으로 이동
+    }
+
+    _plusButtonOverlay = OverlayEntry(
+      builder:
+          (context) => Positioned(
+            left: leftPosition,
+            top: caretOffset.dy,
+            child: toolButton(),
+          ),
+    );
+
+    Overlay.of(context, rootOverlay: true).insert(_plusButtonOverlay!);
   }
 
   // 슬래시 명령 감지
@@ -417,44 +336,6 @@ class _NotionEditorState extends State<NotionEditor> {
           ],
         ),
       ),
-    );
-  }
-
-  AppBar _buildAppBar() {
-    return AppBar(
-      backgroundColor: Color(0xFF2D2D2D),
-      elevation: 0,
-      automaticallyImplyLeading: false,
-      leadingWidth: 150,
-      titleSpacing: 16,
-      title: Row(
-        children: [
-          Text('새 페이지', style: TextStyle(color: Colors.white, fontSize: 14)),
-          Icon(Icons.keyboard_arrow_down, color: Colors.grey),
-        ],
-      ),
-      actions: [
-        IconButton(
-          icon: Icon(Icons.share, color: Colors.grey.shade400),
-          onPressed: () {},
-          tooltip: '공유',
-        ),
-        IconButton(
-          icon: Icon(Icons.comment_outlined, color: Colors.grey.shade400),
-          onPressed: () {},
-          tooltip: '댓글',
-        ),
-        IconButton(
-          icon: Icon(Icons.star_border, color: Colors.grey.shade400),
-          onPressed: () {},
-          tooltip: '즐겨찾기',
-        ),
-        IconButton(
-          icon: Icon(Icons.more_horiz, color: Colors.grey.shade400),
-          onPressed: () {},
-          tooltip: '더 보기',
-        ),
-      ],
     );
   }
 
@@ -808,163 +689,121 @@ class _NotionEditorState extends State<NotionEditor> {
         child: Icon(Icons.add_photo_alternate, color: Colors.white),
         tooltip: '이미지 추가',
       ),
-      body: FileDropWrapper(
-        onFileDropped: (file) {
-          // 이미지 파일 처리
-          if (kIsWeb) {
-            // 웹에서는 URL 형태로 받음
-            if (file is String) {
-              setState(() {
-                _images.add(
-                  ImageItem(
-                    file: file,
-                    position: _cursorPositionY > 0 ? _cursorPositionY : 200.0,
-                    isWeb: true,
-                  ),
-                );
-              });
-            }
-          } else {
-            // 네이티브에서는 File 형태로 받음
-            if (file is File) {
-              // 이미지 파일인지 확인
-              final extension = file.path.toLowerCase();
-              if (extension.endsWith('.jpg') ||
-                  extension.endsWith('.jpeg') ||
-                  extension.endsWith('.png') ||
-                  extension.endsWith('.gif')) {
-                setState(() {
-                  _images.add(
-                    ImageItem(
-                      file: file,
-                      position: _cursorPositionY > 0 ? _cursorPositionY : 200.0,
-                    ),
-                  );
-                });
-              }
-            }
-          }
-        },
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return Stack(
-                children: [
-                  // 스크롤 가능한 메인 콘텐츠
-                  SingleChildScrollView(
-                    controller: _scrollController,
-                    child: MouseRegion(
-                      child: Stack(
-                        children: [
-                          // 노션 스타일 레이아웃 - 가운데 정렬, 제한된 너비
-                          Center(
-                            child: Container(
-                              constraints: BoxConstraints(
-                                maxWidth: 800,
-                                minHeight: constraints.maxHeight,
-                              ),
-                              alignment: Alignment.topLeft,
-                              margin: EdgeInsets.symmetric(horizontal: 16),
-                              child: Column(
-                                children: [
-                                  // 제목 입력 (새 페이지 )- 패딩 조정
-                                  Padding(
-                                    padding: EdgeInsets.only(
-                                      top: 16,
-                                      bottom: 16,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Stack(
+              children: [
+                // 스크롤 가능한 메인 콘텐츠
+                SingleChildScrollView(
+                  controller: _scrollController,
+                  child: MouseRegion(
+                    child: Stack(
+                      children: [
+                        // 노션 스타일 레이아웃 - 가운데 정렬, 제한된 너비
+                        Center(
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: 800,
+                              minHeight: constraints.maxHeight,
+                            ),
+                            alignment: Alignment.topLeft,
+                            margin: EdgeInsets.symmetric(horizontal: 16),
+                            child: Column(
+                              children: [
+                                // 제목 입력 (새 페이지 )- 패딩 조정
+                                Padding(
+                                  padding: EdgeInsets.only(top: 16, bottom: 16),
+                                  child: TextField(
+                                    controller: _titleController,
+                                    style: TextStyle(
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
                                     ),
-                                    child: TextField(
-                                      controller: _titleController,
-                                      style: TextStyle(
-                                        fontSize: 32,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                      cursorColor: Colors.white,
-                                      cursorWidth: 2,
-                                      decoration: InputDecoration(
-                                        border: InputBorder.none,
-                                        hintText: '제목 없음',
-                                        hintStyle: TextStyle(
-                                          color: Colors.grey,
-                                        ),
-                                        contentPadding: EdgeInsets.zero,
-                                      ),
+                                    cursorColor: Colors.white,
+                                    cursorWidth: 2,
+                                    decoration: InputDecoration(
+                                      border: InputBorder.none,
+                                      hintText: '제목 없음',
+                                      hintStyle: TextStyle(color: Colors.grey),
+                                      contentPadding: EdgeInsets.zero,
                                     ),
                                   ),
+                                ),
 
-                                  // 스타일링 툴바
-                                  toolBar(),
-                                  // 메인 에디터
-                                  Container(
-                                    padding: EdgeInsets.zero,
-                                    constraints: BoxConstraints(
-                                      minHeight: constraints.maxHeight - 300,
-                                    ),
-                                    child: Stack(
-                                      children: [
-                                        // 에디터 콘텐츠 영역
-                                        Container(
-                                          child: Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              if (_textAlign != TextAlign.right)
-                                                SizedBox(width: 10),
-                                              // 실제 텍스트 필드
-                                              Expanded(
-                                                child: Padding(
-                                                  padding: EdgeInsets.only(
-                                                    left: 30,
-                                                  ), // 왼쪽 여백 추가
-                                                  child: ScrollConfiguration(
-                                                    behavior: ScrollBehavior()
-                                                        .copyWith(
-                                                          scrollbars: false,
-                                                        ),
-                                                    child: SingleChildScrollView(
-                                                      child: CompositedTransformTarget(
-                                                        link: _layerLink,
-                                                        child: TextField(
-                                                          key: _textFieldKey,
-                                                          controller:
-                                                              _contentController,
-                                                          focusNode:
-                                                              _contentFocusNode,
-                                                          maxLines: null,
-                                                          minLines: 20,
-                                                          textAlign: _textAlign,
-                                                          style: TextStyle(
-                                                            fontSize: 16,
-                                                            fontWeight:
-                                                                _isBold
-                                                                    ? FontWeight
-                                                                        .bold
-                                                                    : FontWeight
-                                                                        .normal,
-                                                            fontStyle:
-                                                                _isItalic
-                                                                    ? FontStyle
-                                                                        .italic
-                                                                    : FontStyle
-                                                                        .normal,
-                                                            decoration:
-                                                                _isUnderlined
-                                                                    ? TextDecoration
-                                                                        .underline
-                                                                    : TextDecoration
-                                                                        .none,
-                                                            color: Colors.white,
-                                                            height: 1.5,
-                                                          ),
-                                                          onChanged:
-                                                              (_) =>
-                                                                  _handleTextChange(),
-                                                          onTap:
-                                                              _updateCursorPosition,
-                                                          cursorColor:
-                                                              Colors.white,
-                                                          decoration: InputDecoration(
+                                // 스타일링 툴바
+                                toolBar(),
+                                // 메인 에디터
+                                Container(
+                                  padding: EdgeInsets.zero,
+                                  constraints: BoxConstraints(
+                                    minHeight: constraints.maxHeight - 300,
+                                  ),
+                                  child: Stack(
+                                    children: [
+                                      // 에디터 콘텐츠 영역
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          if (_textAlign != TextAlign.right)
+                                            SizedBox(width: 10),
+                                          // 실제 텍스트 필드
+                                          Expanded(
+                                            child: Padding(
+                                              padding: EdgeInsets.only(
+                                                left: 30,
+                                              ), // 왼쪽 여백 추가
+                                              child: ScrollConfiguration(
+                                                behavior: ScrollBehavior()
+                                                    .copyWith(
+                                                      scrollbars: false,
+                                                    ),
+                                                child: SingleChildScrollView(
+                                                  child: CompositedTransformTarget(
+                                                    link: _layerLink,
+                                                    child: TextField(
+                                                      key: _textFieldKey,
+                                                      controller:
+                                                          _contentController,
+                                                      focusNode:
+                                                          _contentFocusNode,
+                                                      expands: false,
+                                                      minLines: 1,
+                                                      maxLines: null,
+                                                      textAlign: _textAlign,
+                                                      style: TextStyle(
+                                                        fontSize: 16,
+                                                        fontWeight:
+                                                            _isBold
+                                                                ? FontWeight
+                                                                    .bold
+                                                                : FontWeight
+                                                                    .normal,
+                                                        fontStyle:
+                                                            _isItalic
+                                                                ? FontStyle
+                                                                    .italic
+                                                                : FontStyle
+                                                                    .normal,
+                                                        decoration:
+                                                            _isUnderlined
+                                                                ? TextDecoration
+                                                                    .underline
+                                                                : TextDecoration
+                                                                    .none,
+                                                        color: Colors.white,
+                                                        height: 1.5,
+                                                      ),
+                                                      onChanged:
+                                                          (_) =>
+                                                              _handleTextChange(),
+                                                      onTap:
+                                                          _updateCursorPosition,
+                                                      cursorColor: Colors.white,
+                                                      decoration:
+                                                          InputDecoration(
                                                             border:
                                                                 InputBorder
                                                                     .none,
@@ -977,206 +816,177 @@ class _NotionEditorState extends State<NotionEditor> {
                                                                 ),
                                                             isDense: true,
                                                           ),
-                                                        ),
-                                                      ),
                                                     ),
                                                   ),
                                                 ),
                                               ),
-
-                                              if (_textAlign == TextAlign.right)
-                                                SizedBox(width: 30),
-                                            ],
+                                            ),
                                           ),
-                                        ),
+                                          if (_textAlign == TextAlign.right)
+                                            SizedBox(width: 30),
+                                        ],
+                                      ),
 
-                                        // 플러스 버튼
-                                        if (_contentFocusNode.hasFocus)
-                                          _textAlign == TextAlign.right
-                                              ? Positioned(
-                                                top:
-                                                    _hoverLineY -
-                                                    _scrollOffset +
-                                                    2,
-                                                right: 0,
-                                                height: 24,
-                                                width: 24,
-                                                child: toolButton(),
-                                              )
-                                              : Positioned(
-                                                top:
-                                                    _hoverLineY -
-                                                    _scrollOffset +
-                                                    2,
-                                                left: 0,
-                                                height: 24,
-                                                width: 24,
-                                                child: toolButton(),
-                                              ),
+                                      // 플러스 버튼
 
-                                        // 이미지 항목들 - 가운데 정렬
-                                        ..._images.asMap().entries.map((entry) {
-                                          int index = entry.key;
-                                          ImageItem image = entry.value;
-                                          return Positioned(
-                                            left: 16,
-                                            top: image.position,
-                                            right: 16,
-                                            child: GestureDetector(
-                                              onVerticalDragUpdate: (details) {
-                                                setState(() {
-                                                  image.position +=
-                                                      details.delta.dy;
-                                                });
-                                              },
-                                              child: Stack(
-                                                alignment: Alignment.center,
-                                                children: [
-                                                  // 이미지 - 노션 스타일로 가운데 정렬된 이미지 컨테이너
-                                                  Container(
-                                                    constraints: BoxConstraints(
-                                                      maxWidth:
-                                                          700, // 최대 너비 제한 (노션과 유사하게)
-                                                      maxHeight:
-                                                          400, // 높이 제한 추가
-                                                    ),
-                                                    child: ClipRRect(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            4,
-                                                          ),
-                                                      child:
-                                                          image.isWeb
-                                                              ? Image.network(
-                                                                image.file
-                                                                    as String,
-                                                                fit:
-                                                                    BoxFit
-                                                                        .contain,
-                                                              )
-                                                              : Image.file(
-                                                                image.file
-                                                                    as File,
-                                                                fit:
-                                                                    BoxFit
-                                                                        .contain,
-                                                              ),
-                                                    ),
+                                      // 이미지 항목들 - 가운데 정렬
+                                      ..._images.asMap().entries.map((entry) {
+                                        int index = entry.key;
+                                        ImageItem image = entry.value;
+                                        return Positioned(
+                                          left: 16,
+                                          top: image.position,
+                                          right: 16,
+                                          child: GestureDetector(
+                                            onVerticalDragUpdate: (details) {
+                                              setState(() {
+                                                image.position +=
+                                                    details.delta.dy;
+                                              });
+                                            },
+                                            child: Stack(
+                                              alignment: Alignment.center,
+                                              children: [
+                                                // 이미지 - 노션 스타일로 가운데 정렬된 이미지 컨테이너
+                                                Container(
+                                                  constraints: BoxConstraints(
+                                                    maxWidth:
+                                                        700, // 최대 너비 제한 (노션과 유사하게)
+                                                    maxHeight: 400, // 높이 제한 추가
                                                   ),
-
-                                                  // 삭제 버튼
-                                                  Positioned(
-                                                    right: 0,
-                                                    top: 0,
-                                                    child: Container(
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.black
-                                                            .withOpacity(0.6),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              50,
-                                                            ),
-                                                      ),
-                                                      child: IconButton(
-                                                        icon: Icon(
-                                                          Icons.close,
-                                                          color: Colors.white,
-                                                          size: 16,
-                                                        ),
-                                                        padding: EdgeInsets.all(
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
                                                           4,
                                                         ),
-                                                        constraints:
-                                                            BoxConstraints(),
-                                                        onPressed:
-                                                            () => _deleteImage(
-                                                              index,
+                                                    child:
+                                                        image.isWeb
+                                                            ? Image.network(
+                                                              image.file
+                                                                  as String,
+                                                              fit:
+                                                                  BoxFit
+                                                                      .contain,
+                                                            )
+                                                            : Image.file(
+                                                              image.file
+                                                                  as File,
+                                                              fit:
+                                                                  BoxFit
+                                                                      .contain,
                                                             ),
+                                                  ),
+                                                ),
+
+                                                // 삭제 버튼
+                                                Positioned(
+                                                  right: 0,
+                                                  top: 0,
+                                                  child: Container(
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.black
+                                                          .withOpacity(0.6),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            50,
+                                                          ),
+                                                    ),
+                                                    child: IconButton(
+                                                      icon: Icon(
+                                                        Icons.close,
+                                                        color: Colors.white,
+                                                        size: 16,
                                                       ),
+                                                      padding: EdgeInsets.all(
+                                                        4,
+                                                      ),
+                                                      constraints:
+                                                          BoxConstraints(),
+                                                      onPressed:
+                                                          () => _deleteImage(
+                                                            index,
+                                                          ),
                                                     ),
                                                   ),
-                                                ],
-                                              ),
+                                                ),
+                                              ],
                                             ),
-                                          );
-                                        }).toList(),
-                                      ],
-                                    ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ],
                                   ),
+                                ),
 
-                                  // 추가 여백 확보 (스크롤 시 충분한 공간 제공)
-                                  SizedBox(height: 100),
-                                ],
-                              ),
+                                // 추가 여백 확보 (스크롤 시 충분한 공간 제공)
+                                SizedBox(height: 100),
+                              ],
                             ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // 이미지 옵션 메뉴
+                if (_showImageOptions)
+                  Positioned(
+                    right: 80,
+                    bottom: 20,
+                    child: Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Color(0xFF333333),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.5),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '이미지 추가',
+                            style: TextStyle(color: Colors.white, fontSize: 14),
+                          ),
+                          SizedBox(height: 4),
+                          Divider(color: Colors.grey.shade700, height: 1),
+                          SizedBox(height: 8),
+                          _imageOptionButton(
+                            icon: Icons.photo_library,
+                            label: '갤러리에서 선택',
+                            onPressed: _getImageFromGallery,
+                          ),
+                          SizedBox(height: 8),
+                          _imageOptionButton(
+                            icon: Icons.camera_alt,
+                            label: '카메라로 촬영',
+                            onPressed: _getImageFromCamera,
+                          ),
+                          SizedBox(height: 8),
+                          _imageOptionButton(
+                            icon: Icons.photo_library,
+                            label: '여러 이미지 선택',
+                            onPressed: _getMultipleImages,
+                          ),
+                          SizedBox(height: 8),
+                          _imageOptionButton(
+                            icon: Icons.format_line_spacing,
+                            label: '이미지 자동 정렬',
+                            onPressed: _autoArrangeImages,
                           ),
                         ],
                       ),
                     ),
                   ),
-
-                  // 이미지 옵션 메뉴
-                  if (_showImageOptions)
-                    Positioned(
-                      right: 80,
-                      bottom: 20,
-                      child: Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Color(0xFF333333),
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.5),
-                              blurRadius: 8,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '이미지 추가',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Divider(color: Colors.grey.shade700, height: 1),
-                            SizedBox(height: 8),
-                            _imageOptionButton(
-                              icon: Icons.photo_library,
-                              label: '갤러리에서 선택',
-                              onPressed: _getImageFromGallery,
-                            ),
-                            SizedBox(height: 8),
-                            _imageOptionButton(
-                              icon: Icons.camera_alt,
-                              label: '카메라로 촬영',
-                              onPressed: _getImageFromCamera,
-                            ),
-                            SizedBox(height: 8),
-                            _imageOptionButton(
-                              icon: Icons.photo_library,
-                              label: '여러 이미지 선택',
-                              onPressed: _getMultipleImages,
-                            ),
-                            SizedBox(height: 8),
-                            _imageOptionButton(
-                              icon: Icons.format_line_spacing,
-                              label: '이미지 자동 정렬',
-                              onPressed: _autoArrangeImages,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -1304,6 +1114,8 @@ class _NotionEditorState extends State<NotionEditor> {
               setState(() {
                 _textAlign = TextAlign.left;
               });
+              // 정렬 변경 시 커서 위치 업데이트하여 + 버튼 위치도 업데이트
+              _updateCursorPosition();
             },
           ),
 
@@ -1321,7 +1133,8 @@ class _NotionEditorState extends State<NotionEditor> {
               setState(() {
                 _textAlign = TextAlign.center;
               });
-              print("정렬 변경: 가운데"); // 디버그 로그 추가
+              // 정렬 변경 시 커서 위치 업데이트하여 + 버튼 위치도 업데이트
+              _updateCursorPosition();
             },
           ),
 
@@ -1338,7 +1151,8 @@ class _NotionEditorState extends State<NotionEditor> {
               setState(() {
                 _textAlign = TextAlign.right;
               });
-              print("정렬 변경: 오른쪽"); // 디버그 로그 추가
+              // 정렬 변경 시 커서 위치 업데이트하여 + 버튼 위치도 업데이트
+              _updateCursorPosition();
             },
           ),
         ],
@@ -1346,14 +1160,54 @@ class _NotionEditorState extends State<NotionEditor> {
     );
   }
 
+  AppBar _buildAppBar() {
+    return AppBar(
+      backgroundColor: Color(0xFF2D2D2D),
+      elevation: 0,
+      automaticallyImplyLeading: false,
+      leadingWidth: 150,
+      titleSpacing: 16,
+      title: Row(
+        children: [
+          Text('새 페이지', style: TextStyle(color: Colors.white, fontSize: 14)),
+          Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+        ],
+      ),
+      actions: [
+        IconButton(
+          icon: Icon(Icons.share, color: Colors.grey.shade400),
+          onPressed: () {},
+          tooltip: '공유',
+        ),
+        IconButton(
+          icon: Icon(Icons.comment_outlined, color: Colors.grey.shade400),
+          onPressed: () {},
+          tooltip: '댓글',
+        ),
+        IconButton(
+          icon: Icon(Icons.star_border, color: Colors.grey.shade400),
+          onPressed: () {},
+          tooltip: '즐겨찾기',
+        ),
+        IconButton(
+          icon: Icon(Icons.more_horiz, color: Colors.grey.shade400),
+          onPressed: () {},
+          tooltip: '더 보기',
+        ),
+      ],
+    );
+  }
+
   Widget toolButton() {
     return Container(
+      width: 24,
+      height: 24,
       decoration: BoxDecoration(
         color: Color(0xFF333333),
-        borderRadius: BorderRadius.circular(2),
+        borderRadius: BorderRadius.circular(5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withOpacity(0.3),
             blurRadius: 2,
             offset: Offset(0, 1),
           ),
@@ -1362,16 +1216,13 @@ class _NotionEditorState extends State<NotionEditor> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.circular(5),
           onTap:
               () => _showBlockMenu(
                 context,
-                Offset(
-                  32, // 메뉴 위치 조정
-                  _hoverLineY - _scrollOffset,
-                ),
+                Offset(32, 0), // 현재 위치에서 오른쪽으로 32px 이동
               ),
-          child: Center(child: Icon(Icons.add, size: 12, color: Colors.white)),
+          child: Center(child: Icon(Icons.add, size: 15, color: Colors.white)),
         ),
       ),
     );
@@ -1415,110 +1266,3 @@ class ImageItem {
 }
 
 // 데스크톱과 웹에서 파일 드래그 앤 드롭을 처리하기 위한 클래스
-class FileDropWrapper extends StatelessWidget {
-  final Widget child;
-  final Function(dynamic file) onFileDropped;
-
-  const FileDropWrapper({
-    Key? key,
-    required this.child,
-    required this.onFileDropped,
-  }) : super(key: key);
-
-  Future<File> _copyFileToTemp(String filePath) async {
-    if (kIsWeb) {
-      throw UnsupportedError('웹에서는 지원되지 않는 기능입니다.');
-    }
-    final tempDir = await getTemporaryDirectory();
-    final fileName = path.basename(filePath);
-    final tempFilePath = path.join(tempDir.path, fileName);
-    return File(filePath).copy(tempFilePath);
-  }
-
-  // 웹에서 드래그 앤 드롭 이벤트를 처리하는 JavaScript 코드 설정
-  void _setupWebDropzone(BuildContext context) {
-    if (kIsWeb) {
-      // HTML 드래그 앤 드롭 이벤트를 처리하는 JavaScript 함수 등록
-      final dropzone = html.document.body;
-
-      dropzone?.addEventListener('dragover', (event) {
-        final e = event as html.MouseEvent;
-        e.preventDefault();
-        e.stopPropagation();
-        html.document.body?.classes.add('drag-over');
-      });
-
-      dropzone?.addEventListener('dragleave', (event) {
-        final e = event as html.MouseEvent;
-        e.preventDefault();
-        e.stopPropagation();
-        html.document.body?.classes.remove('drag-over');
-      });
-
-      dropzone?.addEventListener('drop', (event) async {
-        final e = event as html.MouseEvent;
-        e.preventDefault();
-        e.stopPropagation();
-        html.document.body?.classes.remove('drag-over');
-
-        // universal_html 패키지는 DragEvent를 직접 지원하지 않음
-        // 대신 클라이언트 측에서 FileList를 직접 가져옴
-        final transfer = e.dataTransfer;
-        final htmlFiles = transfer?.files;
-
-        if (htmlFiles != null && htmlFiles.isNotEmpty) {
-          for (var i = 0; i < htmlFiles.length; i++) {
-            final file = htmlFiles[i];
-            if (file.type.startsWith('image/')) {
-              final imageUrl = await WebImagePicker.createFileUrl(file);
-              onFileDropped(imageUrl);
-            }
-          }
-        }
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // 웹에서 드래그 앤 드롭 초기화
-    if (kIsWeb) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _setupWebDropzone(context);
-      });
-      return child;
-    }
-
-    // 네이티브 플랫폼에서는 기존 방식 유지
-    return Stack(
-      children: [
-        child,
-        Positioned.fill(
-          child: DragTarget<List<String>>(
-            builder:
-                (context, candidateData, rejectedData) => Container(
-                  color:
-                      candidateData.isNotEmpty
-                          ? Colors.blue.withOpacity(0.2)
-                          : Colors.transparent,
-                  child: SizedBox.expand(),
-                ),
-            onWillAcceptWithDetails: (details) {
-              return details.data.isNotEmpty;
-            },
-            onAcceptWithDetails: (details) async {
-              for (var filePath in details.data) {
-                try {
-                  final file = await _copyFileToTemp(filePath);
-                  onFileDropped(file);
-                } catch (e) {
-                  print('드래그 앤 드롭 에러: $e');
-                }
-              }
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
