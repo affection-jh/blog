@@ -1,5 +1,6 @@
+import 'package:blog/editor.dart';
+import 'package:blog/rich_editor/widgets/custom_text_editor.dart';
 import 'package:flutter/material.dart';
-import 'editor.dart';
 
 void main() {
   runApp(const MyApp());
