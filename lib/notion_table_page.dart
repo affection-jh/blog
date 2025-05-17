@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:data_table_2/data_table_2.dart';
 import 'package:notoin_style/dropdown2.dart';
+import 'package:notoin_style/main.dart';
 
 class NotionTablePage extends StatefulWidget {
   const NotionTablePage({super.key});
@@ -10,46 +11,6 @@ class NotionTablePage extends StatefulWidget {
 }
 
 class _NotionTablePageState extends State<NotionTablePage> {
-  int numOfRows = 1;
-  int numOfColumns = 1;
-  int numOfTagFields = 1;
-  int numOfTextFields = 1;
-
-  final List<Map<String, dynamic>> _members = [
-    {
-      'name': '김민승',
-      'role': 'Frontend',
-      'phoneNumber': '010-5068-1107',
-      'github': 'jaemin104',
-      'status': '활동중',
-      'email': 'jaemin1107@gmail.com',
-    },
-    {
-      'name': '노영진',
-      'role': 'Backend',
-      'phoneNumber': '010-4494-2588',
-      'github': 'youngjin',
-      'status': '활동중',
-      'email': 'emzmfkdufws12@gmail.com',
-    },
-    {
-      'name': '신영빈',
-      'role': 'Frontend',
-      'phoneNumber': '010-5841-0128',
-      'github': 'youngbin03',
-      'status': '활동중',
-      'email': 'shyoungbin0128@gmail.com',
-    },
-    {
-      'name': '정재훈',
-      'role': 'Frontend',
-      'phoneNumber': '010-8253-1379',
-      'github': 'affection.jh',
-      'status': '활동중',
-      'email': 'jaehun330@gmail.com',
-    },
-  ];
-
   @override
   void dispose() {
     _textEditController.dispose();
@@ -61,29 +22,47 @@ class _NotionTablePageState extends State<NotionTablePage> {
   String? _editingColumn;
 
   TextEditingController _textEditController = TextEditingController();
+  int _numOfColumns = 0;
+  int _numOfRows = 0;
 
-  Map<String, dynamic> _textFields = {};
+  List<Map<String, dynamic>> _members = [];
+
+  // 칼럼 헤더 편집 상태를 추가
+  String? _editingHeaderColumn;
+  TextEditingController _headerEditController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _members = members;
+    _numOfColumns = _members.first.keys.length;
+    _numOfRows = _members.length;
+    wtf = _preProcessMemberData(_members);
+  }
+
+  Map<String, List<String>> wtf = {};
 
   // {
-  //  name: ['정재훈', '김민승', '노영진' ...],
-  // 'phoneNumber': ['010-8253-1379', '010-5068-1107', '010-4494-2588' ...],
-  // 'email': ['jaehun330@gmail.com', 'jaemin1107@gmail.com', 'emzmfkdufws12@gmail.com' ...]
+  //  'textFields' : {
+  //   'name': ['정재훈', '김민승', '노영진' ...],
+  //   'phoneNumber': ['010-8253-1379', '010-5068-1107', '010-4494-2588' ...],
+  //   'email': ['jaehun330@gmail.com', 'jaemin1107@gmail.com', 'emzmfkdufws12@gmail.com' ...]
   // }
 
-  Map<String, dynamic> _tagFields = {};
-
+  // 'tagFields' :
   // {
-  //  role: ['Frontend', 'Backend', 'PM', 'DevOps' ...],
-  // 'status': ['활동중', '비활동' ...],
+  //   'role': ['Frontend', 'Backend', 'PM', 'DevOps' ...],
+  //   'status': ['활동중', '비활동' ...],
+  // }
   // }
 
   // 멤버 데이터 전처리
-  Map<String, dynamic> _preProcessMemberData(
+  Map<String, List<String>> _preProcessMemberData(
     List<Map<String, dynamic>> members,
   ) {
-    Map<String, dynamic> processed = {
-      'textFields': <String>[],
-      'tagFields': <String>[],
+    Map<String, List<String>> processed = {
+      'textFields': List<String>.empty(growable: true),
+      'tagFields': List<String>.empty(growable: true),
     };
 
     if (members.isEmpty) return processed;
@@ -112,15 +91,15 @@ class _NotionTablePageState extends State<NotionTablePage> {
       // 기본 텍스트 필드이거나 긴 값이 포함된 경우 텍스트 필드로 분류
       if (defaultTextFieldKeys.contains(key.toLowerCase()) ||
           values.any((v) => v.toString().length > 8)) {
-        processed['textFields'].add(key);
+        processed['textFields']!.add(key);
       }
       // 고유 값이 적은 경우 태그 필드로 분류
       else if (values.length <= 5) {
-        processed['tagFields'].add(key);
+        processed['tagFields']!.add(key);
       }
       // 나머지는 텍스트 필드로 처리
       else {
-        processed['textFields'].add(key);
+        processed['textFields']!.add(key);
       }
     });
 
@@ -132,24 +111,106 @@ class _NotionTablePageState extends State<NotionTablePage> {
     List<DataColumn2> columns = [];
 
     // 텍스트 필드 칼럼 추가
-    for (var field in _textFields.values) {
-      ColumnSize cellSize =
-          field.any((e) => e.length > 13) ? ColumnSize.L : ColumnSize.M;
+    for (var field in wtf['textFields']!) {
+      final GlobalKey columnKey = GlobalKey();
+      ColumnSize cellSize = ColumnSize.S;
+
+      if (_members.any((e) => e[field]!.length > 13)) {
+        cellSize = ColumnSize.L;
+      } else if (_members.any((e) => e[field]!.length > 8)) {
+        cellSize = ColumnSize.M;
+      }
+
       columns.add(
         DataColumn2(
-          label: Text(field.keys.first),
+          label:
+              _editingHeaderColumn == field
+                  ? Focus(
+                    onFocusChange: (hasFocus) {
+                      if (!hasFocus) {
+                        _saveHeaderEdit(field, 'textFields');
+                      }
+                    },
+                    child: Container(
+                      padding: EdgeInsets.zero,
+                      width: 120,
+                      child: TextField(
+                        controller: _headerEditController,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 0,
+                          ),
+                          isDense: true,
+                        ),
+                        style: TextStyle(fontSize: 14),
+                        onSubmitted:
+                            (value) => _saveHeaderEdit(field, 'textFields'),
+                      ),
+                    ),
+                  )
+                  : GestureDetector(
+                    key: columnKey,
+                    onTap:
+                        () =>
+                            _showColumnOptions(field, 'textFields', columnKey),
+                    onDoubleTap: () => _startHeaderEdit(field),
+                    child: Row(children: [Expanded(child: Text(field))]),
+                  ),
           size: cellSize,
-          tooltip: field.values.first.first,
+          tooltip: field,
         ),
       );
     }
 
     // 태그 필드 칼럼 추가
-    for (var field in _tagFields.keys) {
+    for (var field in wtf['tagFields']!) {
+      final GlobalKey columnKey = GlobalKey();
       columns.add(
-        DataColumn2(label: Text(field), size: ColumnSize.S, tooltip: field),
+        DataColumn2(
+          label:
+              _editingHeaderColumn == field
+                  ? Focus(
+                    onFocusChange: (hasFocus) {
+                      if (!hasFocus) {
+                        _saveHeaderEdit(field, 'tagFields');
+                      }
+                    },
+                    child: Container(
+                      padding: EdgeInsets.zero,
+                      width: 120,
+                      child: TextField(
+                        controller: _headerEditController,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 0,
+                          ),
+                          isDense: true,
+                        ),
+                        style: TextStyle(fontSize: 14),
+                        onSubmitted:
+                            (value) => _saveHeaderEdit(field, 'tagFields'),
+                      ),
+                    ),
+                  )
+                  : GestureDetector(
+                    key: columnKey,
+                    onTap:
+                        () => _showColumnOptions(field, 'tagFields', columnKey),
+                    onDoubleTap: () => _startHeaderEdit(field),
+                    child: Row(children: [Expanded(child: Text(field))]),
+                  ),
+          size: ColumnSize.S,
+          tooltip: field,
+        ),
       );
     }
+
     // 추가 버튼 칼럼
     columns.add(
       DataColumn2(
@@ -157,7 +218,7 @@ class _NotionTablePageState extends State<NotionTablePage> {
           onPressed: _addColumn,
           icon: const Icon(Icons.add_sharp, size: 18),
         ),
-        size: ColumnSize.S,
+        size: ColumnSize.L,
       ),
     );
 
@@ -169,7 +230,7 @@ class _NotionTablePageState extends State<NotionTablePage> {
     List<DataCell> cells = [];
 
     // 텍스트 필드 셀 추가
-    for (var field in _textFields.keys) {
+    for (var field in wtf['textFields']!) {
       cells.add(
         DataCell(
           _editingRowIndex == index && _editingColumn == field
@@ -185,33 +246,50 @@ class _NotionTablePageState extends State<NotionTablePage> {
     }
 
     // 태그 필드 셀 추가
-    for (var field in _tagFields.keys) {
+    for (var field in wtf['tagFields']!) {
       final value = member[field] ?? '';
 
       cells.add(
         DataCell(
-          _editingRowIndex == index && _editingColumn == 'status'
-              ? StatusDropdown(
-                initialValue: _tagFields[field]?.first ?? '',
-                onSelected: (String value) {
-                  setState(() {
-                    _members[_editingRowIndex!]['status'] = value;
-                    _editingRowIndex = null;
-                    _editingColumn = null;
-                  });
-                },
-                isEditing:
-                    _editingRowIndex == index && _editingColumn == 'status',
-              )
+          _editingRowIndex == index && _editingColumn == field
+              ? field == 'role'
+                  ? RoleDropdown(
+                    initialValue: value,
+                    onSelected: (String newValue) {
+                      setState(() {
+                        _members[_editingRowIndex!][field] = newValue;
+                        _editingRowIndex = null;
+                        _editingColumn = null;
+                      });
+                    },
+                    isEditing: true,
+                  )
+                  : field == 'status'
+                  ? StatusDropdown(
+                    initialValue: value,
+                    onSelected: (String newValue) {
+                      setState(() {
+                        _members[_editingRowIndex!][field] = newValue;
+                        _editingRowIndex = null;
+                        _editingColumn = null;
+                      });
+                    },
+                    isEditing: true,
+                  )
+                  : _buildEditableTextField(
+                    context,
+                    _textEditController,
+                    _saveEditedCell,
+                  )
               : Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _getTagColor('status', member['status'], _tagFields),
+                  color: _getTagColor(field, value, wtf),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: Text(member['status'], style: TextStyle(fontSize: 12)),
+                child: Text(value, style: TextStyle(fontSize: 12)),
               ),
-          onTap: () => _editCell(index, 'status', member['status']),
+          onTap: () => _editCell(index, field, value),
         ),
       );
     }
@@ -222,12 +300,8 @@ class _NotionTablePageState extends State<NotionTablePage> {
   }
 
   // 태그 배경색 가져오기
-  Color _getTagColor(
-    String field,
-    String value,
-    Map<String, dynamic> tagFields,
-  ) {
-    if (field == 'role') {
+  Color _getTagColor(String field, String value, Map<String, dynamic> wtf) {
+    if (wtf['tagFields']!.contains(field)) {
       switch (value) {
         case 'Frontend':
           return Colors.green.shade100;
@@ -252,60 +326,162 @@ class _NotionTablePageState extends State<NotionTablePage> {
   }
 
   void _addColumn() {
-    // 새 필드 추가 로직
+    final GlobalKey buttonKey = GlobalKey();
+    TextEditingController fieldNameController = TextEditingController();
+    bool isAdding = false;
+    String fieldType = '';
+
+    // 드롭다운 메뉴로 표시할 팝업 메뉴 버튼 설정
+    showMenu<String>(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      context: context,
+      position: RelativeRect.fromLTRB(100, 40, 0, 0), // 이 값은 적절히 조정해야 함
+      items: [
+        PopupMenuItem<String>(
+          value: 'text',
+          child: Row(children: [const Text('텍스트 필드 추가')]),
+        ),
+        PopupMenuItem<String>(
+          value: 'tag',
+          child: Row(children: [const Text('태그 필드 추가')]),
+        ),
+      ],
+    ).then((value) {
+      if (value != null) {
+        // 필드 타입 저장
+        fieldType = value;
+
+        // 필드 이름 입력을 위한 overlay 표시
+        final overlay = Overlay.of(context);
+        OverlayEntry? entry;
+
+        entry = OverlayEntry(
+          builder:
+              (context) => Positioned(
+                // 위치는 적절히 조정
+                right: 0,
+                top: 40,
+                child: Material(
+                  elevation: 4.0,
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    width: 300,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: fieldNameController,
+                          decoration: const InputDecoration(
+                            labelText: '필드 이름',
+                            labelStyle: TextStyle(
+                              fontSize: 14,
+                              color: Colors.black,
+                            ),
+                          ),
+                          autofocus: true,
+                          onSubmitted: (value) {
+                            if (value.isNotEmpty) {
+                              setState(() {
+                                if (fieldType == 'text') {
+                                  wtf['textFields']!.add(value);
+                                } else {
+                                  wtf['tagFields']!.add(value);
+                                }
+
+                                // 모든 멤버에 빈 필드 추가
+                                for (var member in _members) {
+                                  member[value] = '';
+                                }
+                                // 컬럼 수 업데이트
+                                _numOfColumns++;
+                              });
+                            }
+
+                            // 오버레이 닫기
+                            entry?.remove();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+        );
+
+        overlay.insert(entry);
+      }
+    });
+  }
+
+  // 칼럼 삭제 함수
+  void _deleteColumn(String field, String fieldType) {
     showDialog(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('새 필드 추가'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  decoration: const InputDecoration(labelText: '필드 이름'),
-                  controller: _textEditController,
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          String newField = _textEditController.text;
-                          if (newField.isNotEmpty) {
-                            _textFields[newField] = [];
-                          }
-                        });
-                        Navigator.pop(context);
-                      },
-                      child: const Text('텍스트 필드'),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          String newField = _textEditController.text;
-                          if (newField.isNotEmpty) {
-                            _tagFields[newField] = [];
-                          }
-                        });
-                        Navigator.pop(context);
-                      },
-                      child: const Text('태그 필드'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            title: Text('칼럼 삭제'),
+            content: Text('\'$field\' 칼럼을 삭제하시겠습니까?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('취소'),
+              ),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    // 해당 필드 타입에서만 필드 제거
+                    wtf[fieldType]!.remove(field);
+
+                    // 모든 멤버 데이터에서 해당 필드 제거
+                    for (var member in _members) {
+                      member.remove(field);
+                    }
+
+                    // 컬럼 수 업데이트
+                    _numOfColumns--;
+                  });
+                  Navigator.pop(context);
+                },
+                child: Text('삭제', style: TextStyle(color: Colors.red)),
+              ),
+            ],
           ),
     );
   }
 
-  void _editCell(int rowIndex, String column, dynamic value) {
+  // 컬럼 헤더 편집 시작
+  void _startHeaderEdit(String field) {
     setState(() {
-      _editingRowIndex = rowIndex;
-      _editingColumn = column;
-      _textEditController.text = value;
+      _editingHeaderColumn = field;
+      _headerEditController.text = field;
+    });
+  }
+
+  // 컬럼 헤더 편집 저장
+  void _saveHeaderEdit(String oldName, String fieldType) {
+    final newName = _headerEditController.text;
+
+    if (newName.isNotEmpty && newName != oldName) {
+      setState(() {
+        // 필드 이름 변경
+        int index = wtf[fieldType]!.indexOf(oldName);
+        if (index != -1) {
+          wtf[fieldType]![index] = newName;
+        }
+
+        // 모든 멤버 데이터 업데이트
+        for (var member in _members) {
+          member[newName] = member[oldName];
+          member.remove(oldName);
+        }
+      });
+    }
+
+    setState(() {
+      _editingHeaderColumn = null;
     });
   }
 
@@ -317,6 +493,14 @@ class _NotionTablePageState extends State<NotionTablePage> {
         _editingColumn = null;
       });
     }
+  }
+
+  void _editCell(int rowIndex, String column, dynamic value) {
+    setState(() {
+      _editingRowIndex = rowIndex;
+      _editingColumn = column;
+      _textEditController.text = value;
+    });
   }
 
   Widget _buildEditableTextField(
@@ -350,6 +534,64 @@ class _NotionTablePageState extends State<NotionTablePage> {
     );
   }
 
+  // 칼럼 옵션 표시 메서드
+  void _showColumnOptions(String field, String fieldType, GlobalKey columnKey) {
+    final RenderBox? renderBox =
+        columnKey.currentContext?.findRenderObject() as RenderBox?;
+
+    if (renderBox == null) return;
+
+    final position = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+
+    final RelativeRect positionRect = RelativeRect.fromLTRB(
+      position.dx,
+      position.dy + size.height + 10,
+      position.dx + size.width,
+      position.dy + size.height + 10,
+    );
+
+    showMenu<String>(
+      context: context,
+      color: Colors.white,
+      position: positionRect,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
+      elevation: 4,
+      items: [
+        PopupMenuItem<String>(
+          value: 'rename',
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              const SizedBox(width: 10),
+              const Text('칼럼명 변경'),
+              const SizedBox(width: 30),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'delete',
+          child: Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                const SizedBox(width: 10),
+                const Text('삭제하기'),
+                const SizedBox(width: 30),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'rename') {
+        _startHeaderEdit(field);
+      } else if (value == 'delete') {
+        _deleteColumn(field, fieldType);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -380,200 +622,10 @@ class _NotionTablePageState extends State<NotionTablePage> {
                     ),
                     bottom: BorderSide(width: 0.5, color: Colors.grey.shade300),
                   ),
-                  columns: [
-                    DataColumn2(
-                      label: const Text('이름'),
-                      size: ColumnSize.M,
-                      tooltip: '멤버 이름',
-                    ),
-                    DataColumn2(
-                      label: const Text('역할'),
-                      size: ColumnSize.S,
-                      tooltip: '역할',
-                    ),
-                    DataColumn2(
-                      label: const Text('전화번호'),
-                      size: ColumnSize.L,
-                      tooltip: '연락처',
-                    ),
-                    DataColumn2(
-                      label: const Text('GitHub'),
-                      size: ColumnSize.M,
-                      tooltip: 'GitHub 계정',
-                    ),
-                    DataColumn2(
-                      label: const Text('상태'),
-                      size: ColumnSize.S,
-                      tooltip: '활동 상태',
-                    ),
-                    DataColumn2(
-                      label: const Text('이메일'),
-                      size: ColumnSize.M,
-                      tooltip: '이메일 주소',
-                    ),
-                    DataColumn2(
-                      label: IconButton(
-                        onPressed: () {},
-                        icon: const Icon(Icons.add_sharp, size: 18),
-                      ),
-                      size: ColumnSize.M,
-                    ),
-                  ],
+                  columns: _createDataColumns(),
                   rows: List<DataRow>.generate(_members.length, (index) {
                     final member = _members[index];
-
-                    return DataRow2(
-                      cells: [
-                        // 이름 셀
-                        DataCell(
-                          MouseRegion(
-                            child:
-                                _editingRowIndex == index &&
-                                        _editingColumn == 'name'
-                                    ? _buildEditableTextField(
-                                      context,
-                                      _textEditController,
-                                      _saveEditedCell,
-                                    )
-                                    : Text(member['name']),
-                          ),
-                          onTap: () => _editCell(index, 'name', member['name']),
-                        ),
-
-                        // 역할 셀
-                        DataCell(
-                          _editingRowIndex == index && _editingColumn == 'role'
-                              ? RoleDropdown(
-                                initialValue: _tagFields['role']?.first ?? '',
-                                onSelected: (String value) {
-                                  setState(() {
-                                    _members[_editingRowIndex!]['role'] = value;
-                                    _editingRowIndex = null;
-                                    _editingColumn = null;
-                                  });
-                                },
-                                isEditing:
-                                    _editingRowIndex == index &&
-                                    _editingColumn == 'role',
-                              )
-                              : Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color:
-                                      member['role'] == 'Frontend'
-                                          ? Colors.green.shade100
-                                          : member['role'] == 'Backend'
-                                          ? Colors.blue.shade100
-                                          : member['role'] == 'PM'
-                                          ? Colors.purple.shade100
-                                          : Colors.orange.shade100,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  member['role'],
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                          onTap: () => _editCell(index, 'role', member['role']),
-                        ),
-
-                        // 전화번호 셀
-                        DataCell(
-                          _editingRowIndex == index &&
-                                  _editingColumn == 'phoneNumber'
-                              ? _buildEditableTextField(
-                                context,
-                                _textEditController,
-                                _saveEditedCell,
-                              )
-                              : Text(member['phoneNumber']),
-                          onTap:
-                              () => _editCell(
-                                index,
-                                'phoneNumber',
-                                member['phoneNumber'],
-                              ),
-                        ),
-
-                        // Github 셀
-                        DataCell(
-                          _editingRowIndex == index &&
-                                  _editingColumn == 'github'
-                              ? _buildEditableTextField(
-                                context,
-                                _textEditController,
-                                _saveEditedCell,
-                              )
-                              : Text(member['github']),
-                          onTap:
-                              () =>
-                                  _editCell(index, 'github', member['github']),
-                        ),
-
-                        // 상태 셀
-                        DataCell(
-                          _editingRowIndex == index &&
-                                  _editingColumn == 'status'
-                              ? StatusDropdown(
-                                initialValue: _tagFields['status']?.first ?? '',
-                                onSelected: (String value) {
-                                  setState(() {
-                                    _members[_editingRowIndex!]['status'] =
-                                        value;
-                                    _editingRowIndex = null;
-                                    _editingColumn = null;
-                                  });
-                                },
-                                isEditing:
-                                    _editingRowIndex == index &&
-                                    _editingColumn == 'status',
-                              )
-                              : Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _getTagColor(
-                                    'status',
-                                    member['status'],
-                                    _tagFields,
-                                  ),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  member['status'],
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                              ),
-                          onTap:
-                              () =>
-                                  _editCell(index, 'status', member['status']),
-                        ),
-
-                        // 이메일 셀
-                        DataCell(
-                          _editingRowIndex == index && _editingColumn == 'email'
-                              ? _buildEditableTextField(
-                                context,
-                                _textEditController,
-                                _saveEditedCell,
-                              )
-                              : Text(member['email']),
-                          onTap:
-                              () => _editCell(index, 'email', member['email']),
-                        ),
-
-                        // 빈 셀
-                        const DataCell(Text('')),
-                      ],
-                    );
+                    return DataRow2(cells: _createDataCells(member, index));
                   }),
                 ),
               ),
